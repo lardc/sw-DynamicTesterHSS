@@ -1,72 +1,86 @@
-import pyvisa
+from time import sleep
+from datetime import datetime
 import numpy as np
-import matplotlib.pyplot as plt
-
+from numpy.typing import NDArray
+import pyvisa
 from pyvisa.resources.tcpip import TCPIPInstrument
 
 RIGOL_IP = '192.168.128.25'
 VISA_ADDRESS = f'TCPIP::{RIGOL_IP}::INSTR'
 CHANNEL = 'CHAN1'
 
-rm = pyvisa.ResourceManager('@py')
-scope: TCPIPInstrument = rm.open_resource(VISA_ADDRESS)
-scope.timeout = 5000
 
-try:
-    print(scope.query("*IDN?").strip())
-    scope.write(':STOP')
+def get_norm_data(scope: TCPIPInstrument, channel='CHAN1', verbose=False) -> NDArray[np.float32]:
+    t: datetime = datetime.now()
 
-    scope.write(f':WAV:SOUR {CHANNEL}')
+    scope.write(f':WAV:SOUR:{channel}')
+    scope.write(':WAV:MODE NORM')
+    scope.write(':WAV:FORM BYTE')
+
+    data = scope.query_binary_values(':WAV:DATA?', datatype='b')
+
+    if verbose:
+        print('t1', datetime.now() - t)
+
+    t = datetime.now()
+
+    np_data: NDArray[np.float32] = np.array(data, dtype=np.float32)
+
+    if verbose:
+        print('t2', datetime.now() - t)
+
+    return np_data
+
+
+def get_raw_data(scope: TCPIPInstrument, channel='CHAN1', verbose=False) -> NDArray[np.float32]:
+    t: datetime = datetime.now()
+
+    scope.write(f':WAV:SOUR:{channel}')
     scope.write(':WAV:MODE RAW')
     scope.write(':WAV:FORM BYTE')
 
-    state, _ = scope.query(':WAV:STAT?').split(',')
-    print(state)
-
-    data_parts = []
+    max_points = int(scope.query(':ACQ:MDEP?'))
+    if verbose:
+        print("Max points: ", max_points)
 
     scope.write(':WAV:STAR 1')
-    scope.write(':WAV:STOP 1000')
+    scope.write(f':WAV:STOP {max_points}')
 
-    data_parts.append(scope.query_binary_values(':WAV:DATA?', datatype='B', container=np.ndarray))
+    scope.write(':WAV:RES')
+    scope.write(':WAV:BEG')
 
-    scope.write(':WAV:STAR 1001')
-    scope.write(':WAV:STOP 2000')
+    data = []
+    while True:
+        state, points = scope.query(':WAV:STAT?').replace('\n', '').split(',')
+        if state == 'READ' and int(points) == 0:
+            sleep(0.05)
+            continue
 
-    data_parts.append(scope.query_binary_values(':WAV:DATA?', datatype='B', container=np.ndarray))
+        if verbose:
+            print(f"Processed state = {state}, points = {points}")
 
-    raw_data = np.concat(data_parts)
+        data += scope.query_binary_values(':WAV:DATA?', datatype='b')
 
-    volt_scale = float(scope.query(f':{CHANNEL}:SCAL?'))
-    volt_offset = float(scope.query(f':{CHANNEL}:OFFS?'))
-    y_reference = float(scope.query(':WAV:YREF?'))
-    y_origin = float(scope.query(':WAV:YOR?'))
-    y_increment = float(scope.query(':WAV:YINC?'))
-    print(f"volt_scale: {volt_scale}\nvolt_offset: {volt_offset}\ny: {y_reference}")
+        if state == 'IDLE':
+            scope.write(':WAV:END')
+            break
 
-    time_scale = float(scope.query(':TIM:SCAL?'))
-    time_offset = float(scope.query(':TIM:OFFS?'))
-    sample_rate = float(scope.query(':ACQ:SRAT?'))
-    print(f"time_scale: {time_scale}\ntime_offset: {time_offset}\nsample_rate: {sample_rate}")
+    if verbose:
+        print('t1', datetime.now() - t)
 
-    scope.write(':RUN')
+    t = datetime.now()
 
-    voltages = (raw_data - y_reference - y_origin) * y_increment
+    np_data: NDArray[np.float32] = np.array(data, dtype=np.float32)
 
-    num_points = len(voltages)
-    duration = num_points / sample_rate
-    time_axis = np.linspace(0, duration, num_points)
+    if verbose:
+        print('t2', datetime.now() - t)
 
-    plt.figure(figsize=(12, 6))
-    plt.plot(time_axis, voltages)
-    plt.xlabel('t')
-    plt.ylabel('U')
-    plt.grid(True)
-    plt.show()
+    return np_data
 
-except pyvisa.errors.VisaIOError as e:
-    print(f"Exception: {e}")
-finally:
-    if 'scope' in locals():
-        scope.close()
-    print("Connection closed")
+
+if __name__ == '__main__':
+    rm = pyvisa.ResourceManager('@py')
+    instr_scope: TCPIPInstrument = rm.open_resource(VISA_ADDRESS)
+    instr_scope.timeout = 5000
+
+    print(instr_scope.query("*IDN?").strip())
