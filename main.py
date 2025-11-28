@@ -1,5 +1,6 @@
 from time import sleep
 from datetime import datetime
+from typing import Any, Dict
 import numpy as np
 from numpy.typing import NDArray
 import pyvisa
@@ -17,7 +18,7 @@ def get_norm_data(scope: TCPIPInstrument, channel='CHAN1', verbose=False) -> NDA
     scope.write(':WAV:MODE NORM')
     scope.write(':WAV:FORM BYTE')
 
-    data = scope.query_binary_values(':WAV:DATA?', datatype='b')
+    data = scope.query_binary_values(':WAV:DATA?', datatype='B')
 
     if verbose:
         print('t1', datetime.now() - t)
@@ -25,6 +26,9 @@ def get_norm_data(scope: TCPIPInstrument, channel='CHAN1', verbose=False) -> NDA
     t = datetime.now()
 
     np_data: NDArray[np.float32] = np.array(data, dtype=np.float32)
+
+    preamble: Dict[str, Any] = get_preamble(scope)
+    np_data = (np_data - preamble['yorigin'] - preamble['yreference']) * preamble['yincrement']
 
     if verbose:
         print('t2', datetime.now() - t)
@@ -59,7 +63,7 @@ def get_raw_data(scope: TCPIPInstrument, channel='CHAN1', verbose=False) -> NDAr
         if verbose:
             print(f"Processed state = {state}, points = {points}")
 
-        data += scope.query_binary_values(':WAV:DATA?', datatype='b')
+        data += scope.query_binary_values(':WAV:DATA?', datatype='B')
 
         if state == 'IDLE':
             scope.write(':WAV:END')
@@ -72,10 +76,30 @@ def get_raw_data(scope: TCPIPInstrument, channel='CHAN1', verbose=False) -> NDAr
 
     np_data: NDArray[np.float32] = np.array(data, dtype=np.float32)
 
+    preamble: Dict[str, Any] = get_preamble(scope)
+    np_data = (np_data - preamble['yorigin'] - preamble['yreference']) * preamble['yincrement']
+
     if verbose:
         print('t2', datetime.now() - t)
 
     return np_data
+
+
+def get_sample_rate(scope: TCPIPInstrument) -> np.float32:
+    return np.float32(scope.query(':ACQ:SRAT?'))
+
+
+def get_preamble(scope: TCPIPInstrument, channel='CHAN1') -> Dict[str, Any]:
+     return {
+        'xincrement': float(scope.query(':WAV:XINC?')),
+        'xorigin': float(scope.query(':WAV:XOR?')),
+        'xreference': int(scope.query(':WAV:XREF?')),
+        'yincrement': float(scope.query(':WAV:YINC?')),
+        'yorigin': int(scope.query(':WAV:YOR?')),
+        'yreference': int(scope.query(':WAV:YREF?')),
+        'vscale': float(scope.query(f':{channel}:SCAL?')),
+        'voffset': float(scope.query(f':{channel}:OFFS?'))
+    }
 
 
 if __name__ == '__main__':
