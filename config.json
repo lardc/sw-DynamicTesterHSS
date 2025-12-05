@@ -1,0 +1,19 @@
+{
+	"log_path": "logs/app.log",
+	"api_port": 8080,
+	"oscilloscopes": [
+		{
+			"id": "INSTR:1",
+			"channel1": "Vce",
+			"channel2": "Vde",
+			"emulation": false
+		},
+		{
+			"id": "INSTR:2",
+			"channel1": "None",
+			"channel2": "Ig",
+			"emulation": true,
+			"csv_path": "file.csv"
+		}
+	]
+}

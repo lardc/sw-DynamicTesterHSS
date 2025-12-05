@@ -1,11 +1,15 @@
 import uvicorn
+import os
 from src.api_server import app
 from src.config_loader import load_config, Config
 
 
 def main() -> None:
-    local_config = load_config()
-    port = local_config.api_port
+    try:
+        local_config = load_config()
+        port = local_config.api_port
+    except Exception:
+        port = int(os.environ.get("API_PORT", 8000))
 
     uvicorn.run(
         app,
