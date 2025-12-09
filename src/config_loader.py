@@ -5,10 +5,15 @@ from pydantic import BaseModel, ValidationError
 
 class DeviceConfig(BaseModel):
     id: str
-    channel1: str
-    channel2: str
-    emulation: bool
+
+    channel1: Optional[str] = None
+    channel2: Optional[str] = None
+    channel1_div: int = 1
+    channel2_div: int = 1
+
+    emulation: Optional[bool] = False
     csv_path: Optional[str] = None
+    sample_rate: float = 0
 
 
 class Config(BaseModel):

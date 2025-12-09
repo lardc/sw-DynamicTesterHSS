@@ -5,15 +5,18 @@
 		{
 			"id": "INSTR:1",
 			"channel1": "Vce",
-			"channel2": "Vde",
-			"emulation": false
+			"channel2": "Vge",
+			"emulation": true,
+			"csv_path": "data.csv",
+			"sample_rate": 2e-6
 		},
 		{
 			"id": "INSTR:2",
-			"channel1": "None",
-			"channel2": "Ig",
+			"channel1": "I",
+			"channel2": null,
 			"emulation": true,
-			"csv_path": "file.csv"
+			"csv_path": "data.csv",
+			"sample_rate": 2e-6
 		}
 	]
 }
