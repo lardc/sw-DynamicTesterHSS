@@ -6,6 +6,7 @@ from numpy.typing import NDArray
 from src.config_loader import Config, DeviceConfig
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydantic import BaseModel, ValidationError
+from pydantic_numpy.typing import NpNDArrayFp32, NpNDArrayInt16
 import pandas as pd
 
 import pyvisa
@@ -20,7 +21,7 @@ logger = get_logger(__name__)
 
 class OscilloscopeData(BaseModel):
     id: str
-    raw_data: Dict[str, List[float]]
+    raw_data: Dict[str, List[float]|NpNDArrayFp32]
 
     class Config:
         arbitrary_types_allowed = True
@@ -189,6 +190,11 @@ class OscilloscopeEmulation(Oscilloscope):
         logger.info(f"Getting raw data OscilloscopeEmulation: {self._id}, channel1: {self._channel1}, channel2: {self._channel2}.")
 
         data: Dict[str, NDArray[np.float32]] = {}
+
+        if not self._csv_path:
+            logger.error(f"CSV path not configured for {self._id}")
+            return data
+
         try:
             df = pd.read_csv(self._csv_path)
 
@@ -198,9 +204,9 @@ class OscilloscopeEmulation(Oscilloscope):
                 data[self._channel2] = df[self._channel2].values
 
         except FileNotFoundError:
-            logger.error(f"File not found: {self._csv_path}.")
+            logger.exception(f"File not found: {self._csv_path}.")
         except Exception as e:
-            logger.error(f"Exception while reading emulation data: {e}.")
+            logger.exception(f"Exception while reading emulation data: {e}.")
         return data
 
     def get_norm_data(self) -> Dict[str, NDArray[np.float32]]:
@@ -218,8 +224,10 @@ class OscilloscopeHandler:
     def __init__(self, config: Config, visa_path='') -> None:
         try:
             self.__resource_manager = ResourceManager(visa_path)
+            logger.info(f"ResourceManager initialized with path: {visa_path}")
         except Exception as e:
-            logger.error(f"Failed to load visa library: {e}")
+            logger.exception("Failed to load visa library")
+            raise RuntimeError(f"Cannot initialize ResourceManager: {e}") from e
 
         self.__oscilloscopes: List[Oscilloscope] = []
         self.__results: List[OscilloscopeData] = []
@@ -246,6 +254,8 @@ class OscilloscopeHandler:
             return OscilloscopeData(id=scope.get_id(), raw_data={})
 
     def __request_data(self, worker_func: Callable[[Oscilloscope], OscilloscopeData]) -> List[OscilloscopeData]:
+        self.__results.clear()
+
         with ThreadPoolExecutor(max_workers=len(self.__oscilloscopes) or 1) as executor:
             future_to_scope = {
                 executor.submit(worker_func, scope): scope.get_id()
@@ -272,6 +282,8 @@ class OscilloscopeHandler:
         return ids
 
     def set_config(self, config: Config) -> None:
+        self.__oscilloscopes.clear()
+
         for device_config in config.oscilloscopes:
             try:
                 scope_object = self.__create_scope_instance(device_config)
