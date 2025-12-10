@@ -1,7 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from src.config_loader import load_config, Config
-from src.sampler import OscilloscopeHandler
+from src.sampler import OscilloscopeHandler, OscilloscopeData
 from src.logger import setup_logging, get_logger
+from src.measure import find_min_max
+import numpy as np
+
+from typing import List
 
 app = FastAPI(title="Oscilloscope Sampler")
 scope_handler: OscilloscopeHandler
@@ -28,7 +32,18 @@ def get_status():
 
 @app.get("/results")
 def get_results():
-    return scope_handler.get_results()
+    results: List[OscilloscopeData] = scope_handler.get_results()
+
+    data = {}
+
+    for inst in results:
+        keys = list(inst.raw_data.keys())
+        data[inst.id] = {}
+        for k in keys:
+            minimum, maximum = find_min_max(np.array(inst.raw_data[k]))
+            data[inst.id][k] = {"min": minimum, "max": maximum}
+
+    return data
 
 
 @app.get("/test/ids")
@@ -37,7 +52,7 @@ def test_id_request():
 
 @app.get("/test/config")
 def test_get_config():
-    return load_config().model_dump_json()
+    return load_config().model_dump()
 
 
 @app.post("/configure")
