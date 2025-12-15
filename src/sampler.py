@@ -176,14 +176,14 @@ class Oscilloscope:
 
 
 class OscilloscopeEmulation(Oscilloscope):
-    def __init__(self, config: DeviceConfig, resource_manager: ResourceManager) -> None:
+    def __init__(self, config: DeviceConfig, resource_manager: ResourceManager, csv_path: str|None, sample_rate: float) -> None:
         self._id: str = config.id
         self._channel1: Optional[str] = config.channel1
         self._channel2: Optional[str] = config.channel2
         self._channel1_div: int = config.channel1_div
         self._channel2_div: int = config.channel2_div
-        self._csv_path: Optional[str] = config.csv_path
-        self._preamble: Preamble = Preamble(sample_rate=config.sample_rate)
+        self._csv_path: Optional[str] = csv_path
+        self._preamble: Preamble = Preamble(sample_rate=sample_rate)
         logger.info(f"Initialized OscilloscopeEmulation: {self._id}")
 
     def get_raw_data(self) -> Dict[str, NDArray[np.float32]]:
@@ -236,10 +236,10 @@ class OscilloscopeHandler:
 
         logger.info("Initialized OscilloscopeHandler.")
 
-    def __create_scope_instance(self, device_config: DeviceConfig) -> Oscilloscope:
-        if device_config.emulation:
-            return OscilloscopeEmulation(device_config, self.__resource_manager)
-        return Oscilloscope(device_config, self.__resource_manager)
+    def __create_scope_instance(self, config: DeviceConfig) -> Oscilloscope:
+        if self.__emulation:
+            return OscilloscopeEmulation(config, self.__resource_manager, self.__csv_path, self.__sample_rate)
+        return Oscilloscope(config, self.__resource_manager)
 
     def _worker_get_raw_data(self, scope: Oscilloscope) -> OscilloscopeData:
         try:
@@ -283,6 +283,10 @@ class OscilloscopeHandler:
 
     def set_config(self, config: Config) -> None:
         self.__oscilloscopes.clear()
+
+        self.__emulation: bool|None = config.emulation
+        self.__csv_path: str|None = config.csv_path
+        self.__sample_rate: float = config.sample_rate
 
         for device_config in config.oscilloscopes:
             try:
