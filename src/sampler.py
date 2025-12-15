@@ -207,7 +207,7 @@ class OscilloscopeEmulation(Oscilloscope):
         except FileNotFoundError:
             logger.exception(f"File not found: {self._csv_path}.")
         except Exception as e:
-            logger.exception(f"Exception while reading emulation data: {e}.")
+            logger.exception(f"Exception while reading emulation data.")
         return data
 
     def get_norm_data(self) -> Dict[str, NDArray[np.float32]]:
@@ -295,6 +295,6 @@ class OscilloscopeHandler:
                 self.__oscilloscopes.append(scope_object)
                 logger.info("OscilloscopeHandler config loaded.")
                 logger.info(f"OscilloscopeHandler set scope instances {[id.get_id() for id in self.__oscilloscopes]}.")
-            except Exception as e:
+            except Exception:
                 logger.exception(f"Unable to create oscilloscope instance {device_config.id}")
 
