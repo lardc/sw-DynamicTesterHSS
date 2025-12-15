@@ -291,5 +291,5 @@ class OscilloscopeHandler:
                 logger.info("OscilloscopeHandler config loaded.")
                 logger.info(f"OscilloscopeHandler set scope instances {[id.get_id() for id in self.__oscilloscopes]}.")
             except Exception as e:
-                logger.error(f"Unable to create oscilloscope instance {device_config.id}: {e}")
+                logger.exception(f"Unable to create oscilloscope instance {device_config.id}")
 
