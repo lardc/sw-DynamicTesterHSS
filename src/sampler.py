@@ -51,7 +51,8 @@ class Oscilloscope:
             self.__scope: TCPIPInstrument = resource_manager.open_resource(self.__id)
             logger.info(f"Initialized Oscilloscope, id: {self.__id}")
         except VisaIOError as e:
-            logger.error(f"Failed to initialize Oscilloscope, id: {self.__id}. Exception: {e}.")
+            logger.exception(f"Failed to initialize Oscilloscope, id: {self.__id}")
+            raise RuntimeError(f"Cannot initialize oscilloscope {self.__id}") from e
 
     def get_id(self) -> str:
         return self.__id

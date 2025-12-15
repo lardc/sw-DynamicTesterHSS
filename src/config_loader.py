@@ -1,6 +1,6 @@
 import json
 from typing import List, Dict, Optional
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, Field
 
 
 class DeviceConfig(BaseModel):
@@ -8,8 +8,8 @@ class DeviceConfig(BaseModel):
 
     channel1: Optional[str] = None
     channel2: Optional[str] = None
-    channel1_div: int = 1
-    channel2_div: int = 1
+    channel1_div: int = Field(default=1, ge=1)
+    channel2_div: int = Field(default=1, ge=1)
 
 
 class Config(BaseModel):
@@ -19,7 +19,7 @@ class Config(BaseModel):
     
     emulation: Optional[bool] = False
     csv_path: Optional[str] = None
-    sample_rate: float = 0
+    sample_rate: float = Field(default=0, ge=0)
 
 
 def load_config(path: str = 'config.json') -> Config:
