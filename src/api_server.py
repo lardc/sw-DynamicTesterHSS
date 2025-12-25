@@ -2,10 +2,12 @@ from fastapi import FastAPI, HTTPException
 from src.config_loader import load_config, Config
 from src.sampler import OscilloscopeHandler, OscilloscopeData
 from src.logger import setup_logging, get_logger
-from src.measure import find_min_max
+from src.measure import find_min_max, serialize_curves
 import numpy as np
 
 from typing import List
+
+from src.measure import Curves, is_diode, vi_rise_fall, calc_delay, recovery, calc_energy, is_high_element, on_mode, get_pivot_index
 
 app = FastAPI(title="Oscilloscope Sampler")
 scope_handler: OscilloscopeHandler
@@ -32,18 +34,51 @@ def get_status():
 
 @app.get("/results")
 def get_results():
-    results: List[OscilloscopeData] = scope_handler.get_results()
+    pivot_index = get_pivot_index(scope_handler.get_results())
 
-    data = {}
+    list_curves = []
+    list_curves.append(serialize_curves(scope_handler.get_results(), end_index=pivot_index))
+    list_curves.append(serialize_curves(scope_handler.get_results(), start_index=pivot_index))
 
-    for inst in results:
-        keys = list(inst.raw_data.keys())
-        data[inst.id] = {}
-        for k in keys:
-            minimum, maximum = find_min_max(np.array(inst.raw_data[k]))
-            data[inst.id][k] = {"min": minimum, "max": maximum}
+    results = []
 
-    return data
+    for curves in list_curves:
+        logger.info(f"Measuring curves {curves}.")
+        diode = is_diode(curves)
+        high = is_high_element(curves)
+        on = False if diode else on_mode(curves)
+        vi = vi_rise_fall(curves, diode)
+        rec = recovery(curves, diode)
+        energy = calc_energy(curves)
+        delay = calc_delay(curves)
+
+        result = {
+            "Uce_amp": vi["V_points"].S_amp,
+            "Uce_max": vi["V_points"].S_max,
+            "Ice_amp": vi["I_points"].S_amp,
+            "Ice_max": vi["I_points"].S_max,
+            "dI_dt": vi["I_points"].S_rf,
+            "tfi": vi["I_points"].t_rf if not on else None,
+            "tri": vi["I_points"].t_rf if on else None,
+            "Icpk": vi["I_points"].S_max if not on and not diode else None,
+            "dU_dt": vi["V_points"].S_rf,
+            "tfv": vi["V_points"].t_rf if on else None,
+            "trv": vi["V_points"].t_rf if not on else None,
+            "Eon": energy["Energy"] if on else None,
+            "Eoff": energy["Energy"] if not on else None,
+            "tdi_on": delay if on and not high else None,
+            "tdi_off": delay if not on and not high else None,
+            "Uce_100": vi["V_points"].S_amp if not on else None,
+            "Irm": rec["Irrm"] if on or diode else None,
+            "trr": rec["trr"] if on or diode else None,
+            "trr1": rec["trr1"] if on or diode else None,
+            "trr2": rec["trr2"] if on or diode else None,
+            "Qrr": rec["Qrr"] if on or diode else None,
+            "Erec": rec["Energy"] if on or diode else None,
+        }
+        results.append(result)
+
+    return results
 
 
 @app.get("/test/ids")
@@ -54,16 +89,26 @@ def test_id_request():
 def test_get_config():
     return load_config().model_dump()
 
+@app.get("/test/curves")
+def test_get_curves():
+    pivot_index = get_pivot_index(scope_handler.get_results())
+
+    list_curves = []
+    list_curves.append(serialize_curves(scope_handler.get_results(), end_index=pivot_index))
+    list_curves.append(serialize_curves(scope_handler.get_results(), start_index=pivot_index))
+    print(list_curves)
+    return {"status": "ok"}
+
 
 @app.post("/configure")
 def configure():
     scope_handler.set_config(load_config())
-
+    return {"status": "config reloaded"}
 
 @app.post("/start")
 def start_sampler():
     scope_handler.request_raw_data()
-
+    return {"status": "sampling started"}
 
 @app.post("/stop")
 def stop_sampler():

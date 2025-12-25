@@ -22,6 +22,7 @@ logger = get_logger(__name__)
 class OscilloscopeData(BaseModel):
     id: str
     raw_data: Dict[str, List[float]|NpNDArrayFp32]
+    time_step: Optional[float] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -244,13 +245,13 @@ class OscilloscopeHandler:
 
     def _worker_get_raw_data(self, scope: Oscilloscope) -> OscilloscopeData:
         try:
-            return OscilloscopeData(id=scope.get_id(), raw_data=scope.get_raw_data())
+            return OscilloscopeData(id=scope.get_id(), raw_data=scope.get_raw_data(), time_step=scope.get_preamble().sample_rate)
         except Exception as e:
             return OscilloscopeData(id=scope.get_id(), raw_data={})
 
     def _worker_get_norm_data(self, scope: Oscilloscope) -> OscilloscopeData:
         try:
-            return OscilloscopeData(id=scope.get_id(), raw_data=scope.get_norm_data())
+            return OscilloscopeData(id=scope.get_id(), raw_data=scope.get_norm_data(), time_step=scope.get_preamble().sample_rate)
         except Exception as e:
             return OscilloscopeData(id=scope.get_id(), raw_data={})
 
