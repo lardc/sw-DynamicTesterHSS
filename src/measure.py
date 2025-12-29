@@ -164,6 +164,10 @@ def recovery_get_xy(data: np.ndarray, magic_a=20, magic_b=12, magic_c=2):
         start_index = min(start_index, len(data)-1)
         end_index = min(end_index, len(data)-1)
 
+    if start_index == end_index:
+        logger.warning("recovery_get_xy: start_index equals end_index, returning zero slope")
+        return {"k": 0.0, "b": float(data[start_index])}
+
     k = (data[start_index] - data[end_index]) / (start_index - end_index)
     b = data[start_index] - k * start_index
 
