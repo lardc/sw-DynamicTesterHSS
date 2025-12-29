@@ -36,6 +36,10 @@ def get_pivot_index(data: List[OscilloscopeData]) -> int:
             vge_data = d.raw_data['Vge']
             break
 
+    if len(vge_data) == 0:
+        logger.warning("No Vge data found, returning 0 as pivot index.")
+        return 0
+
     first_zero_idx = 0
     second_zero_idx = 0
     for i in range(len(vge_data)-1):
@@ -45,6 +49,10 @@ def get_pivot_index(data: List[OscilloscopeData]) -> int:
             else:
                 second_zero_idx = i+1
                 break
+
+    if second_zero_idx == 0:
+        logger.warning(f"Found only {1 if first_zero_idx > 0 else 0} zero crossing(s). Using fallback pivot.")
+        return len(vge_data) // 2 if first_zero_idx == 0 else first_zero_idx
 
     pivot_idx = (first_zero_idx + second_zero_idx) // 2
 

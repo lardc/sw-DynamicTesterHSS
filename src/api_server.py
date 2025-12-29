@@ -34,11 +34,15 @@ def get_status():
 
 @app.get("/results")
 def get_results():
-    pivot_index = get_pivot_index(scope_handler.get_results())
+    results_data = scope_handler.get_results()
+    if not results_data:
+        raise HTTPException(status_code=404, detail="No results available")
+
+    pivot_index = get_pivot_index(results_data)
 
     list_curves = []
-    list_curves.append(serialize_curves(scope_handler.get_results(), end_index=pivot_index))
-    list_curves.append(serialize_curves(scope_handler.get_results(), start_index=pivot_index))
+    list_curves.append(serialize_curves(results_data, end_index=pivot_index))
+    list_curves.append(serialize_curves(results_data, start_index=pivot_index))
 
     results = []
 
