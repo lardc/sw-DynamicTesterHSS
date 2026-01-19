@@ -33,31 +33,34 @@ def get_pivot_index(data: List[OscilloscopeData]) -> int:
     vge_data = np.array([])
     for d in data:
         if 'Vge' in d.raw_data:
-            vge_data = d.raw_data['Vge']
+            vge_data = np.array(d.raw_data['Vge'])
             break
 
-    if len(vge_data) == 0:
+    if vge_data.size == 0:
         logger.warning("No Vge data found, returning 0 as pivot index.")
         return 0
 
-    first_zero_idx = 0
-    second_zero_idx = 0
-    for i in range(len(vge_data)-1):
-        if vge_data[i] <= 0 and vge_data[i+1] > 0:
-            if first_zero_idx == 0:
-                first_zero_idx = i+1
-            else:
-                second_zero_idx = i+1
-                break
+    falling_edges = np.where((vge_data[:-1] > 0) & (vge_data[1:] <= 0))[0] + 1
+    
+    if falling_edges.size == 0:
+        logger.warning("No falling edge found in Vge.")
+        rising_edges = np.where((vge_data[:-1] <= 0) & (vge_data[1:] > 0))[0] + 1
+        return rising_edges[0] if rising_edges.size > 0 else len(vge_data) // 2
 
-    if second_zero_idx == 0:
-        logger.warning(f"Found only {1 if first_zero_idx > 0 else 0} zero crossing(s). Using fallback pivot.")
-        return len(vge_data) // 2 if first_zero_idx == 0 else first_zero_idx
+    first_falling_idx = falling_edges[0]
 
-    pivot_idx = (first_zero_idx + second_zero_idx) // 2
+    rising_edges_after_fall = np.where((vge_data[first_falling_idx:-1] <= 0) & 
+                                       (vge_data[first_falling_idx+1:] > 0))[0] + first_falling_idx + 1
 
-    logger.info(f"Data split at index {pivot_idx}.")
+    if rising_edges_after_fall.size == 0:
+        logger.warning("Found falling edge but no rising edge.")
+        return first_falling_idx
 
+    next_rising_idx = rising_edges_after_fall[0]
+
+    pivot_idx = (first_falling_idx + next_rising_idx) // 2
+    
+    logger.info(f"Detected falling edge at {first_falling_idx}, rising edge at {next_rising_idx}. Pivot: {pivot_idx}")
     return pivot_idx
 
 def serialize_curves(data: List[OscilloscopeData], start_index: int = 0, end_index: int = -1) -> Curves:

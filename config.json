@@ -2,7 +2,7 @@
 	"log_path": "logs/app.log",
 	"api_port": 8080,
 	"emulation": true,
-	"csv_path": "data.csv",
+	"csv_path": "data5k.csv",
 	"sample_rate": 2e-9,
 	"oscilloscopes": [
 		{

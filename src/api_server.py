@@ -1,3 +1,4 @@
+import time
 from fastapi import FastAPI, HTTPException
 from src.config_loader import load_config, Config
 from src.sampler import OscilloscopeHandler, OscilloscopeData
@@ -12,6 +13,8 @@ from src.measure import Curves, is_diode, vi_rise_fall, calc_delay, recovery, ca
 app = FastAPI(title="Oscilloscope Sampler")
 scope_handler: OscilloscopeHandler
 logger = get_logger(__name__)
+
+g_t1 = 0.0
 
 
 @app.on_event("startup")
@@ -29,11 +32,18 @@ def startup_event():
 
 @app.get("/status")
 def get_status():
+    logger.info("Endpoint /status was called")
     return {"status": "stat"}
 
 
 @app.get("/results")
 def get_results():
+    global g_t1
+
+    logger.info("Endpoint /results was called")
+
+    t2 = time.perf_counter()
+
     results_data = scope_handler.get_results()
     if not results_data:
         raise HTTPException(status_code=404, detail="No results available")
@@ -47,7 +57,6 @@ def get_results():
     results = []
 
     for curves in list_curves:
-        logger.info(f"Measuring curves {curves}.")
         diode = is_diode(curves)
         high = is_high_element(curves)
         on = False if diode else on_mode(curves)
@@ -82,6 +91,10 @@ def get_results():
         }
         results.append(result)
 
+    t2 = time.perf_counter() - t2
+
+    logger.info(f"samplig and measuring estimated: {t2 + g_t1}")
+
     return results
 
 
@@ -100,20 +113,26 @@ def test_get_curves():
     list_curves = []
     list_curves.append(serialize_curves(scope_handler.get_results(), end_index=pivot_index))
     list_curves.append(serialize_curves(scope_handler.get_results(), start_index=pivot_index))
-    print(list_curves)
+    #print(list_curves)
     return {"status": "ok"}
 
 
 @app.post("/configure")
 def configure():
+    logger.info("Endpoint /configure was called")
     scope_handler.set_config(load_config())
     return {"status": "config reloaded"}
 
 @app.post("/start")
 def start_sampler():
+    global g_t1
+    logger.info("Endpoint /start was called")
+    g_t1 = time.perf_counter()
     scope_handler.request_raw_data()
+    g_t1 = time.perf_counter() - g_t1
     return {"status": "sampling started"}
 
 @app.post("/stop")
 def stop_sampler():
+    logger.info("Endpoint /stop was called")
     return
