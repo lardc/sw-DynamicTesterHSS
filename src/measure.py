@@ -147,14 +147,14 @@ def integrate(data: np.ndarray, time_step: float, start_index: int, end_index: i
     return result * time_step
 
 def find_aux_point(data: np.ndarray, start_index: int, threshold: float):
-    x = y = None
-    for i in range(start_index, len(data)):
-        if data[i] <= threshold:
-            x = i
-            y = data[i]
-            break
-
-    return {"X": x, "Y": y}
+    sub_data = data[start_index:]
+    idx_array = np.where(sub_data <= threshold)[0]
+    
+    if idx_array.size > 0:
+        actual_idx = idx_array[0] + start_index
+        return {"X": actual_idx, "Y": data[actual_idx]}
+    
+    return {"X": None, "Y": None}
 
 def recovery_get_xy(data: np.ndarray, magic_a=20, magic_b=12, magic_c=2):
     max_point_idx = np.argmax(data)
@@ -185,21 +185,16 @@ def recovery(curves: Curves, is_diode: bool):
     i_point_min = np.argmin(current)
     i_point_max = np.argmax(current)
 
-    ir0 = tr0 = None
-    for i in range(i_point_min, i_point_max):
-        if current[i] > (i * line_i["k"] + line_i["b"]):
-            ir0 = current[i]
-            tr0 = i
-            break
-    if tr0 is None:
+    search_range = np.arange(i_point_min, i_point_max)
+    if search_range.size > 0:
+        line_vals = search_range * line_i["k"] + line_i["b"]
+        mask = current[i_point_min:i_point_max] > line_vals
+        tr0 = search_range[np.argmax(mask)] if np.any(mask) else i_point_min
+    else:
         tr0 = i_point_min
 
-    current_trim = []
-    current_cut = []
-    for i in range(tr0, len(current)):
-        current_trim.append(current[i] - (i * line_i["k"] + line_i["b"]))
-        current_cut.append(current[i])
-    current_trim = np.array(current_trim)
+    indices = np.arange(tr0, len(current))
+    current_trim = current[tr0:] - (indices * line_i["k"] + line_i["b"])
 
     irrm_idx = np.argmax(current_trim)
     irrm = current_trim[irrm_idx]
@@ -211,31 +206,27 @@ def recovery(curves: Curves, is_diode: bool):
     k_r = (aux_090["Y"] - aux_025["Y"]) / (aux_090["X"] - aux_025["X"]) if (aux_090["X"] != aux_025["X"]) else 1e-9
     b_r = aux_090["Y"] - k_r * aux_090["X"]
 
-    trr_index = int(round(-b_r / k_r))
-    if trr_index >= len(current_trim):
-        trr_index = len(current_trim) - 1
-    trr = -b_r / k_r * time_step * 1e9
-    qrr = integrate(current_trim, time_step, 0, trr_index - 1) * 1e6
+    trr_index_local = int(round(-b_r / k_r))
+    trr_index_local = np.clip(trr_index_local, 0, len(current_trim) - 1)
+    
+    trr = (trr_index_local) * time_step * 1e9
+    qrr = integrate(current_trim, time_step, 0, trr_index_local - 1) * 1e6
 
-    trr2 = (trr_index - irrm_idx) * time_step * 1e9
+    trr2 = (trr_index_local - irrm_idx) * time_step * 1e9
     trr1 = trr - trr2
 
-    power = []
-    max_voltage = np.max(voltage)
-    for i in range(tr0, tr0 + (aux_002["X"] or 0)):
-        volt = voltage[i] if is_diode else (max_voltage - voltage[i])
-        curr = current[i] - (i * line_i["k"] + line_i["b"])
-        power.append(volt * curr)
-    power = np.array(power)
+    end_p_idx = tr0 + (aux_002["X"] or 0)
+    v_slice = voltage[tr0:end_p_idx]
+    if not is_diode:
+        v_slice = np.max(voltage) - v_slice
+    
+    p_len = end_p_idx - tr0
+    power = v_slice * current_trim[:p_len]
     energy = integrate(power, time_step, 0, len(power) - 1) * 1e3
 
     return {
-        "trr": trr,
-        "trr1": trr1,
-        "trr2": trr2,
-        "Irrm": irrm,
-        "Qrr": qrr,
-        "Energy": energy
+        "trr": trr, "trr1": trr1, "trr2": trr2,
+        "Irrm": irrm, "Qrr": qrr, "Energy": energy
     }
 
 def calc_energy(curves: Curves):

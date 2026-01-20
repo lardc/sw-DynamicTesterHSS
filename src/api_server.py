@@ -92,6 +92,7 @@ def get_results():
         results.append(result)
 
     t2 = time.perf_counter() - t2
+    results.append(t2 + g_t1)
 
     logger.info(f"samplig and measuring estimated: {t2 + g_t1}")
 
