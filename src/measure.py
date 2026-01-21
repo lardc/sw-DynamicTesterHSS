@@ -121,8 +121,8 @@ def signal_rise_fall(signal: np.ndarray, time_step: float, low_point: float = 0.
         t_max=t_max
     )
 
-def vi_rise_fall(curves: Curves, is_diode: bool) -> Dict[str, RiseFallResult]:
-    vce = -curves.Vce if is_diode else curves.Vce
+def vi_rise_fall(curves: Curves) -> Dict[str, RiseFallResult]:
+    vce = curves.Vce
     v_points = signal_rise_fall(vce, curves.time_step)
     i_points = signal_rise_fall(curves.Ice, curves.time_step)
 
@@ -176,9 +176,9 @@ def recovery_get_xy(data: np.ndarray, magic_a=20, magic_b=12, magic_c=2):
 
     return {"k": k, "b": b}
 
-def recovery(curves: Curves, is_diode: bool):
+def recovery(curves: Curves):
     current = curves.Ice
-    voltage = -curves.Vce if is_diode else curves.Vce
+    voltage = curves.Vce
     time_step = curves.time_step
 
     line_i = recovery_get_xy(current)
@@ -217,8 +217,7 @@ def recovery(curves: Curves, is_diode: bool):
 
     end_p_idx = tr0 + (aux_002["X"] or 0)
     v_slice = voltage[tr0:end_p_idx]
-    if not is_diode:
-        v_slice = np.max(voltage) - v_slice
+    v_slice = np.max(voltage) - v_slice
     
     p_len = end_p_idx - tr0
     power = v_slice * current_trim[:p_len]
@@ -259,9 +258,6 @@ def calc_energy(curves: Curves):
     energy = integrate(power, time_step, 0, len(power) - 1) * 1e3 if len(power) > 0 else 0
 
     return {"Power": power, "Energy": energy}
-
-def is_diode(curves: Curves) -> bool:
-    return bool(np.mean(curves.Vce) < 0)
 
 def is_high_element(curves: Curves) -> bool:
     return len(curves.Vge) == 0

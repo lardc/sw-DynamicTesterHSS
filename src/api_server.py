@@ -8,7 +8,7 @@ import numpy as np
 
 from typing import List
 
-from src.measure import Curves, is_diode, vi_rise_fall, calc_delay, recovery, calc_energy, is_high_element, on_mode, get_pivot_index
+from src.measure import Curves, vi_rise_fall, calc_delay, recovery, calc_energy, is_high_element, on_mode, get_pivot_index
 
 app = FastAPI(title="Oscilloscope Sampler")
 scope_handler: OscilloscopeHandler
@@ -57,11 +57,10 @@ def get_results():
     results = []
 
     for curves in list_curves:
-        diode = is_diode(curves)
         high = is_high_element(curves)
-        on = False if diode else on_mode(curves)
-        vi = vi_rise_fall(curves, diode)
-        rec = recovery(curves, diode)
+        on = on_mode(curves)
+        vi = vi_rise_fall(curves)
+        rec = recovery(curves)
         energy = calc_energy(curves)
         delay = calc_delay(curves)
 
@@ -73,7 +72,7 @@ def get_results():
             "dI_dt": vi["I_points"].S_rf,
             "tfi": vi["I_points"].t_rf if not on else None,
             "tri": vi["I_points"].t_rf if on else None,
-            "Icpk": vi["I_points"].S_max if not on and not diode else None,
+            "Icpk": vi["I_points"].S_max if not on else None,
             "dU_dt": vi["V_points"].S_rf,
             "tfv": vi["V_points"].t_rf if on else None,
             "trv": vi["V_points"].t_rf if not on else None,
@@ -82,17 +81,16 @@ def get_results():
             "tdi_on": delay if on and not high else None,
             "tdi_off": delay if not on and not high else None,
             "Uce_100": vi["V_points"].S_amp if not on else None,
-            "Irm": rec["Irrm"] if on or diode else None,
-            "trr": rec["trr"] if on or diode else None,
-            "trr1": rec["trr1"] if on or diode else None,
-            "trr2": rec["trr2"] if on or diode else None,
-            "Qrr": rec["Qrr"] if on or diode else None,
-            "Erec": rec["Energy"] if on or diode else None,
+            "Irm": rec["Irrm"] if on else None,
+            "trr": rec["trr"] if on else None,
+            "trr1": rec["trr1"] if on else None,
+            "trr2": rec["trr2"] if on else None,
+            "Qrr": rec["Qrr"] if on else None,
+            "Erec": rec["Energy"] if on else None,
         }
         results.append(result)
 
     t2 = time.perf_counter() - t2
-    results.append(t2 + g_t1)
 
     logger.info(f"samplig and measuring estimated: {t2 + g_t1}")
 
