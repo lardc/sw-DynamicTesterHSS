@@ -13,9 +13,9 @@ class DeviceConfig(BaseModel):
 
 
 class Config(BaseModel):
-    log_path: str
+    log_path: str = "logs/app.log"
     api_port: int = 8000
-    oscilloscopes: List[DeviceConfig]
+    oscilloscopes: List[DeviceConfig] = []
     
     emulation: Optional[bool] = False
     csv_path: Optional[str] = None

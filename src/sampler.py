@@ -58,6 +58,15 @@ class Oscilloscope:
     def get_id(self) -> str:
         return self.__id
 
+    def get_device_config(self) -> DeviceConfig:
+        return DeviceConfig(
+            id=self.__id,
+            channel1=self.__channel1,
+            channel2=self.__channel2,
+            channel1_div=self._channel1_div,
+            channel2_div=self._channel2_div
+        )
+
     def get_raw_data(self) -> Dict[str, NDArray[np.float32]]:
         data: Dict[str, NDArray[np.float32]] = {}
 
@@ -188,6 +197,15 @@ class OscilloscopeEmulation(Oscilloscope):
         self._preamble: Preamble = Preamble(sample_rate=sample_rate)
         logger.info(f"Initialized OscilloscopeEmulation: {self._id}")
 
+    def get_device_config(self) -> DeviceConfig:
+        return DeviceConfig(
+            id=self._id,
+            channel1=self._channel1,
+            channel2=self._channel2,
+            channel1_div=self._channel1_div,
+            channel2_div=self._channel2_div
+        )
+
     def get_raw_data(self) -> Dict[str, NDArray[np.float32]]:
         logger.info(f"Getting raw data OscilloscopeEmulation: {self._id}, channel1: {self._channel1}, channel2: {self._channel2}.")
 
@@ -298,4 +316,16 @@ class OscilloscopeHandler:
                 logger.info(f"OscilloscopeHandler set scope instances {[id.get_id() for id in self.__oscilloscopes]}.")
             except Exception:
                 logger.exception(f"Unable to create oscilloscope instance {device_config.id}")
+
+    def get_config(self) -> Config:
+        device_configs = []
+        for scope in self.__oscilloscopes:
+            device_configs.append(scope.get_device_config())
+            
+        return Config(
+            oscilloscopes=device_configs,
+            emulation=self.__emulation,
+            csv_path=self.__csv_path,
+            sample_rate=self.__sample_rate
+        )
 

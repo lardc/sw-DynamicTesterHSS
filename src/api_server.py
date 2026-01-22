@@ -103,7 +103,7 @@ def test_id_request():
 
 @app.get("/test/config")
 def test_get_config():
-    return load_config().model_dump()
+    return scope_handler.get_config()
 
 @app.get("/test/curves")
 def test_get_curves():
@@ -117,10 +117,18 @@ def test_get_curves():
 
 
 @app.post("/configure")
-def configure():
+def configure(config_data: Config):
     logger.info("Endpoint /configure was called")
-    scope_handler.set_config(load_config())
-    return {"status": "config reloaded"}
+
+    current_config = load_config()
+    update_data = config_data.model_dump(exclude_unset=True)
+    updated_config = current_config.model_copy(update=update_data)
+    scope_handler.set_config(updated_config)
+    return {
+        "status": "config updated",
+        "updated_fields": list(update_data.keys())
+    }
+
 
 @app.post("/start")
 def start_sampler():
