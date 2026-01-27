@@ -1,20 +1,25 @@
 import json
 from typing import List, Dict, Optional
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, Field
 
 
 class DeviceConfig(BaseModel):
     id: str
-    channel1: str
-    channel2: str
-    emulation: bool
-    csv_path: Optional[str] = None
+
+    channel1: Optional[str] = None
+    channel2: Optional[str] = None
+    channel1_div: int = Field(default=1, ge=1)
+    channel2_div: int = Field(default=1, ge=1)
 
 
 class Config(BaseModel):
-    log_path: str
+    log_path: str = "logs/app.log"
     api_port: int = 8000
-    oscilloscopes: List[DeviceConfig]
+    oscilloscopes: List[DeviceConfig] = []
+    
+    emulation: Optional[bool] = False
+    csv_path: Optional[str] = None
+    sample_rate: float = Field(default=0, ge=0)
 
 
 def load_config(path: str = 'config.json') -> Config:

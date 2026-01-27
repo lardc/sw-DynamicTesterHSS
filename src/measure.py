@@ -1,0 +1,300 @@
+import numpy as np
+
+from numpy.typing import NDArray
+from typing import Tuple, Dict, List
+from src.sampler import OscilloscopeData
+from dataclasses import dataclass
+
+from src.logger import get_logger
+
+logger = get_logger(__name__)
+
+@dataclass
+class Curves:
+    Vge: NDArray[np.float32]
+    Vce: NDArray[np.float32]
+    Ice: NDArray[np.float32]
+    time_step: float
+
+@dataclass
+class RiseFallResult:
+    S_max: float
+    S_amp: float
+    S_rf: float
+    t_rf: float
+    t_min: float
+    t_max: float
+
+def perform_calculations(curves: Curves) -> Dict[str, float|None]:
+    high = is_high_element(curves)
+    on = on_mode(curves)
+    vi = vi_rise_fall(curves)
+    rec = recovery(curves)
+    energy = calc_energy(curves)
+    delay = calc_delay(curves)
+
+    return {
+        "Uce_amp": vi["V_points"].S_amp,
+        "Uce_max": vi["V_points"].S_max,
+        "Ice_amp": vi["I_points"].S_amp,
+        "Ice_max": vi["I_points"].S_max,
+        "dI_dt": vi["I_points"].S_rf,
+        "tfi": vi["I_points"].t_rf if not on else None,
+        "tri": vi["I_points"].t_rf if on else None,
+        "Icpk": vi["I_points"].S_max if not on else None,
+        "dU_dt": vi["V_points"].S_rf,
+        "tfv": vi["V_points"].t_rf if on else None,
+        "trv": vi["V_points"].t_rf if not on else None,
+        "Eon": energy["Energy"] if on else None,
+        "Eoff": energy["Energy"] if not on else None,
+        "tdi_on": delay if on and not high else None,
+        "tdi_off": delay if not on and not high else None,
+        "Uce_100": vi["V_points"].S_amp if not on else None,
+        "Irm": rec["Irrm"] if on else None,
+        "trr": rec["trr"] if on else None,
+        "trr1": rec["trr1"] if on else None,
+        "trr2": rec["trr2"] if on else None,
+        "Qrr": rec["Qrr"] if on else None,
+        "Erec": rec["Energy"] if on else None,
+    }
+
+def find_min_max(array: NDArray) -> Tuple[float, float]:
+    return (array.min(), array.max())
+
+def get_pivot_index(data: List[OscilloscopeData]) -> int:
+    vge_data = np.array([])
+    for d in data:
+        if 'Vge' in d.raw_data:
+            vge_data = np.array(d.raw_data['Vge'])
+            break
+
+    if vge_data.size == 0:
+        logger.warning("No Vge data found, returning 0 as pivot index.")
+        return 0
+
+    falling_edges = np.where((vge_data[:-1] > 0) & (vge_data[1:] <= 0))[0] + 1
+    
+    if falling_edges.size == 0:
+        logger.warning("No falling edge found in Vge.")
+        rising_edges = np.where((vge_data[:-1] <= 0) & (vge_data[1:] > 0))[0] + 1
+        return rising_edges[0] if rising_edges.size > 0 else len(vge_data) // 2
+
+    first_falling_idx = falling_edges[0]
+
+    rising_edges_after_fall = np.where((vge_data[first_falling_idx:-1] <= 0) & 
+                                       (vge_data[first_falling_idx+1:] > 0))[0] + first_falling_idx + 1
+
+    if rising_edges_after_fall.size == 0:
+        logger.warning("Found falling edge but no rising edge.")
+        return first_falling_idx
+
+    next_rising_idx = rising_edges_after_fall[0]
+
+    pivot_idx = (first_falling_idx + next_rising_idx) // 2
+    
+    logger.info(f"Detected falling edge at {first_falling_idx}, rising edge at {next_rising_idx}. Pivot: {pivot_idx}")
+    return pivot_idx
+
+def serialize_curves(data: List[OscilloscopeData], start_index: int = 0, end_index: int = -1) -> Curves:
+    logger.info("Serializing curves from oscilloscope data.")
+    curves = Curves(
+        Vge = np.array([]),
+        Vce =  np.array([]),
+        Ice =  np.array([]),
+        time_step = 0.0
+    )
+
+    for d in data:
+        keys = list(d.raw_data.keys())
+        curves.time_step = d.time_step
+        for k in keys:
+            if k == 'Vge':
+                curves.Vge = np.array(d.raw_data[k])[start_index:end_index]
+            elif k == 'Vce':
+                curves.Vce = np.array(d.raw_data[k])[start_index:end_index]
+            elif k == 'Ice':
+                curves.Ice = np.array(d.raw_data[k])[start_index:end_index]
+
+    return curves
+
+def signal_rise_fall(signal: np.ndarray, time_step: float, low_point: float = 0.1) -> RiseFallResult:
+    max_zone = 50
+    rise_mode = signal[0] < signal[-1]
+    if rise_mode:
+        s_amp: float = np.mean(signal[-max_zone:])
+    else:
+        s_amp: float = np.mean(signal[:max_zone])
+    s_max = np.max(signal)
+
+    t_min = t_max = None
+    base_value = s_amp if rise_mode else s_max
+
+    for i in range(len(signal)):
+        idx = i if rise_mode else len(signal) - 1 - i
+        if t_min is None and signal[idx] >= base_value * low_point:
+            t_min = idx
+        if t_max is None and signal[idx] >= base_value * 0.9:
+            t_max = idx
+        if t_min is not None and t_max is not None:
+            break
+
+    if t_min is None or t_max is None:
+        t_min = t_max = 0
+
+    t_rf = abs(t_max - t_min) * time_step * 1e9  # ns
+    s_rf = abs((signal[t_max] - signal[t_min]) / (t_rf if t_rf != 0 else 1)) * 1e3  # per us
+
+    return RiseFallResult(
+        S_max=s_max,
+        S_amp=s_amp,
+        S_rf=s_rf,
+        t_rf=t_rf,
+        t_min=t_min,
+        t_max=t_max
+    )
+
+def vi_rise_fall(curves: Curves) -> Dict[str, RiseFallResult]:
+    vce = curves.Vce
+    v_points = signal_rise_fall(vce, curves.time_step)
+    i_points = signal_rise_fall(curves.Ice, curves.time_step)
+
+    return {"V_points": v_points, "I_points": i_points}
+
+def calc_delay(curves: Curves) -> float:
+    vge_pivot = signal_rise_fall(curves.Vge, curves.time_step)
+    ice_pivot = signal_rise_fall(curves.Ice, curves.time_step)
+
+    on_mode = curves.Vce[0] > curves.Vce[-1]
+    delay = (ice_pivot.t_min - vge_pivot.t_min) if on_mode else (ice_pivot.t_max - vge_pivot.t_max)
+
+    return delay * curves.time_step * 1e9  # ns
+
+def integrate(data: np.ndarray, time_step: float, start_index: int, end_index: int) -> float:
+    if end_index < start_index:
+        return 0.0
+
+    result = np.sum(data[start_index:end_index+1])
+    result -= 0.5 * (data[start_index] + data[end_index])
+
+    return result * time_step
+
+def find_aux_point(data: np.ndarray, start_index: int, threshold: float):
+    sub_data = data[start_index:]
+    idx_array = np.where(sub_data <= threshold)[0]
+    
+    if idx_array.size > 0:
+        actual_idx = idx_array[0] + start_index
+        return {"X": actual_idx, "Y": data[actual_idx]}
+    
+    return {"X": None, "Y": None}
+
+def recovery_get_xy(data: np.ndarray, magic_a=20, magic_b=12, magic_c=2):
+    max_point_idx = np.argmax(data)
+    fraction = round((len(data) - max_point_idx) / magic_a)
+
+    start_index = max_point_idx + fraction * magic_b
+    end_index = len(data) - fraction * magic_c
+
+    if start_index >= len(data) or end_index >= len(data):
+        start_index = min(start_index, len(data)-1)
+        end_index = min(end_index, len(data)-1)
+
+    if start_index == end_index:
+        logger.warning("recovery_get_xy: start_index equals end_index, returning zero slope")
+        return {"k": 0.0, "b": float(data[start_index])}
+
+    k = (data[start_index] - data[end_index]) / (start_index - end_index)
+    b = data[start_index] - k * start_index
+
+    return {"k": k, "b": b}
+
+def recovery(curves: Curves):
+    current = curves.Ice
+    voltage = curves.Vce
+    time_step = curves.time_step
+
+    line_i = recovery_get_xy(current)
+    i_point_min = np.argmin(current)
+    i_point_max = np.argmax(current)
+
+    search_range = np.arange(i_point_min, i_point_max)
+    if search_range.size > 0:
+        line_vals = search_range * line_i["k"] + line_i["b"]
+        mask = current[i_point_min:i_point_max] > line_vals
+        tr0 = search_range[np.argmax(mask)] if np.any(mask) else i_point_min
+    else:
+        tr0 = i_point_min
+
+    indices = np.arange(tr0, len(current))
+    current_trim = current[tr0:] - (indices * line_i["k"] + line_i["b"])
+
+    irrm_idx = np.argmax(current_trim)
+    irrm = current_trim[irrm_idx]
+
+    aux_090 = find_aux_point(current_trim, irrm_idx, irrm * 0.9)
+    aux_025 = find_aux_point(current_trim, irrm_idx, irrm * 0.25)
+    aux_002 = find_aux_point(current_trim, irrm_idx, irrm * 0.02)
+
+    k_r = (aux_090["Y"] - aux_025["Y"]) / (aux_090["X"] - aux_025["X"]) if (aux_090["X"] != aux_025["X"]) else 1e-9
+    b_r = aux_090["Y"] - k_r * aux_090["X"]
+
+    trr_index_local = int(round(-b_r / k_r))
+    trr_index_local = np.clip(trr_index_local, 0, len(current_trim) - 1)
+    
+    trr = (trr_index_local) * time_step * 1e9
+    qrr = integrate(current_trim, time_step, 0, trr_index_local - 1) * 1e6
+
+    trr2 = (trr_index_local - irrm_idx) * time_step * 1e9
+    trr1 = trr - trr2
+
+    end_p_idx = tr0 + (aux_002["X"] or 0)
+    v_slice = voltage[tr0:end_p_idx]
+    v_slice = np.max(voltage) - v_slice
+    
+    p_len = end_p_idx - tr0
+    power = v_slice * current_trim[:p_len]
+    energy = integrate(power, time_step, 0, len(power) - 1) * 1e3
+
+    return {
+        "trr": trr, "trr1": trr1, "trr2": trr2,
+        "Irrm": irrm, "Qrr": qrr, "Energy": energy
+    }
+
+def calc_energy(curves: Curves):
+    _vge = curves.Vge
+    _vce = curves.Vce
+    _ice = curves.Ice
+    time_step = curves.time_step
+
+    if len(_vce) != len(_ice):
+        raise ValueError("Energy calc: arrays of different lengths.")
+
+    on_mode = _vce[0] > _vce[-1]
+
+    vce_pivot = signal_rise_fall(_vce, time_step, 0.02)
+    ice_pivot = signal_rise_fall(_ice, time_step, 0.02)
+
+    start_time = 0
+    if len(_vge) != 0:
+        vge_pivot = signal_rise_fall(_vge, time_step)
+        start_time = vge_pivot.t_min if on_mode else vge_pivot.t_max
+    stop_time = vce_pivot.t_min if on_mode else ice_pivot.t_min
+
+    power = _vce[start_time:stop_time] * _ice[start_time:stop_time]
+
+    if len(_vge) == 0 and len(power) > 0:
+        pmax_idx = np.argmax(power)
+        initial_shift = np.mean(power[:pmax_idx // 2]) if pmax_idx > 0 else 0
+        power = power - initial_shift
+
+    energy = integrate(power, time_step, 0, len(power) - 1) * 1e3 if len(power) > 0 else 0
+
+    return {"Power": power, "Energy": energy}
+
+def is_high_element(curves: Curves) -> bool:
+    return len(curves.Vge) == 0
+
+def on_mode(curves: Curves) -> bool:
+    return curves.Vce[0] > curves.Vce[-1]
+
+
