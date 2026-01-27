@@ -5,10 +5,11 @@ from src.sampler import OscilloscopeHandler, OscilloscopeData
 from src.logger import setup_logging, get_logger
 from src.measure import find_min_max, serialize_curves
 import numpy as np
+from pydantic import BaseModel
 
-from typing import List
+from typing import List, Dict
 
-from src.measure import Curves, vi_rise_fall, calc_delay, recovery, calc_energy, is_high_element, on_mode, get_pivot_index
+from src.measure import Curves, perform_calculations, get_pivot_index
 
 app = FastAPI(title="Oscilloscope Sampler")
 scope_handler: OscilloscopeHandler
@@ -16,6 +17,10 @@ logger = get_logger(__name__)
 
 g_t1 = 0.0
 
+class ResponseModel(BaseModel):
+    status: str = "ok"
+    info: str = ""
+    data: List[Dict[str, float|None]] = []
 
 @app.on_event("startup")
 def startup_event():
@@ -36,9 +41,11 @@ def get_status():
     return {"status": "stat"}
 
 
-@app.get("/results")
+@app.get("/results", response_model=ResponseModel)
 def get_results():
     global g_t1
+
+    response = ResponseModel()
 
     logger.info("Endpoint /results was called")
 
@@ -48,53 +55,30 @@ def get_results():
     if not results_data:
         raise HTTPException(status_code=404, detail="No results available")
 
-    pivot_index = get_pivot_index(results_data)
+    try:
+        pivot_index = get_pivot_index(results_data)
+        list_curves = [
+            serialize_curves(results_data, end_index=pivot_index),
+            serialize_curves(results_data, start_index=pivot_index)
+        ]
+    except Exception as e:
+        response.status = "failed"
+        response.info = f"error serializing curves: {e}"
+        return response
 
-    list_curves = []
-    list_curves.append(serialize_curves(results_data, end_index=pivot_index))
-    list_curves.append(serialize_curves(results_data, start_index=pivot_index))
-
-    results = []
-
-    for curves in list_curves:
-        high = is_high_element(curves)
-        on = on_mode(curves)
-        vi = vi_rise_fall(curves)
-        rec = recovery(curves)
-        energy = calc_energy(curves)
-        delay = calc_delay(curves)
-
-        result = {
-            "Uce_amp": vi["V_points"].S_amp,
-            "Uce_max": vi["V_points"].S_max,
-            "Ice_amp": vi["I_points"].S_amp,
-            "Ice_max": vi["I_points"].S_max,
-            "dI_dt": vi["I_points"].S_rf,
-            "tfi": vi["I_points"].t_rf if not on else None,
-            "tri": vi["I_points"].t_rf if on else None,
-            "Icpk": vi["I_points"].S_max if not on else None,
-            "dU_dt": vi["V_points"].S_rf,
-            "tfv": vi["V_points"].t_rf if on else None,
-            "trv": vi["V_points"].t_rf if not on else None,
-            "Eon": energy["Energy"] if on else None,
-            "Eoff": energy["Energy"] if not on else None,
-            "tdi_on": delay if on and not high else None,
-            "tdi_off": delay if not on and not high else None,
-            "Uce_100": vi["V_points"].S_amp if not on else None,
-            "Irm": rec["Irrm"] if on else None,
-            "trr": rec["trr"] if on else None,
-            "trr1": rec["trr1"] if on else None,
-            "trr2": rec["trr2"] if on else None,
-            "Qrr": rec["Qrr"] if on else None,
-            "Erec": rec["Energy"] if on else None,
-        }
-        results.append(result)
+    try:
+        for curves in list_curves:
+            response.data.append(perform_calculations(curves))
+    except Exception as e:
+        response.status = "failed"
+        response.info = "calculations failed: " + str(e)
+        return response
 
     t2 = time.perf_counter() - t2
 
     logger.info(f"samplig and measuring estimated: {t2 + g_t1}")
 
-    return results
+    return response
 
 
 @app.get("/test/ids")
